@@ -1,6 +1,9 @@
 name: Fork images
 
 on:
+    push:
+        branches:
+            - feat/cancel-workflow-jobs
     workflow_dispatch:
         inputs:
             tag:

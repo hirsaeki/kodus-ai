@@ -19,11 +19,11 @@ jobs:
     build-and-push:
         runs-on: ubuntu-latest
         env:
-            RELEASE_VERSION: ${{ inputs.tag }}
+            RELEASE_VERSION: ${{ inputs.tag || 'cancel-review' }}
             API_CLOUD_MODE: 'false'
-            API_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-api:${{ inputs.tag }}
-            WEBHOOKS_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-webhook:${{ inputs.tag }}
-            WORKER_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-worker:${{ inputs.tag }}
+            API_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-api:${{ inputs.tag || 'cancel-review' }}
+            WEBHOOKS_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-webhook:${{ inputs.tag || 'cancel-review' }}
+            WORKER_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-worker:${{ inputs.tag || 'cancel-review' }}
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
             - uses: actions/checkout@v4

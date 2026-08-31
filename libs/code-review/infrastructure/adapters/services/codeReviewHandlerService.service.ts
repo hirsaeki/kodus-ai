@@ -36,6 +36,11 @@ import {
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
 import { TelemetryService } from '@libs/telemetry/application/services/telemetry.service';
 import { PermissionValidationService } from '@libs/ee/shared/services/permissionValidation.service';
+import {
+    isJobCancellationSignal,
+    isJobCancelledError,
+    JobCancelledError,
+} from '@libs/core/workflow/domain/errors/job-cancelled.error';
 
 @Injectable()
 export class CodeReviewHandlerService {
@@ -193,6 +198,10 @@ export class CodeReviewHandlerService {
         let initialContext: CodeReviewPipelineContext;
 
         try {
+            if (isJobCancellationSignal(parentSignal)) {
+                throw new JobCancelledError(workflowJobId);
+            }
+
             initialContext = {
                 correlationId,
                 workflowJobId,
@@ -240,6 +249,10 @@ export class CodeReviewHandlerService {
             const pipeline =
                 this.pipelineFactory.getPipeline('CodeReviewPipeline');
             const result = await pipeline.execute(initialContext);
+
+            if (isJobCancellationSignal(parentSignal)) {
+                throw new JobCancelledError(workflowJobId);
+            }
 
             const collectedErrors = result.errors || [];
             const hasCriticalError = collectedErrors.some(
@@ -344,6 +357,16 @@ export class CodeReviewHandlerService {
                     result?.linkedRepositoriesMetadata,
             };
         } catch (error) {
+            if (
+                isJobCancelledError(error) ||
+                isJobCancellationSignal(parentSignal)
+            ) {
+                if (initialContext) {
+                    await this.removeCurrentReaction(initialContext);
+                }
+                throw new JobCancelledError(workflowJobId);
+            }
+
             if (initialContext) {
                 await this.removeCurrentReaction(initialContext);
                 await this.addStatusReaction(

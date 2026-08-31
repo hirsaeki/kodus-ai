@@ -94,6 +94,7 @@ import { CentralizedConfigModule } from '@libs/centralized-config/modules/centra
 import { LangfuseShutdownProvider } from '@libs/core/log/langfuse-shutdown.provider';
 import { NotificationModule } from '@libs/notifications/modules/notification.module';
 import { NotificationController } from './controllers/notification.controller';
+import { WorkflowQueueController } from './controllers/workflow-queue.controller';
 
 @Module({
     imports: [
@@ -200,6 +201,7 @@ import { NotificationController } from './controllers/notification.controller';
         CockpitProductivityController,
         CockpitReviewAnalyticsController,
         NotificationController,
+        WorkflowQueueController,
     ],
     providers: [LangfuseShutdownProvider, TrialExtensionNotifierService],
 })

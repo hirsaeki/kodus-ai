@@ -8,6 +8,7 @@ export interface StaleWorkflowJobReapResult {
 export interface IWorkflowJobRepository {
     create(job: any, transactionManager?: unknown): Promise<any>;
     update(id: string, data: any): Promise<any>;
+    cancel(id: string, organizationId: string): Promise<boolean>;
     findOne(id: string): Promise<any>;
     findMany(query: any): Promise<{ data: any[]; total?: number }>;
     prunePayloadForFinalizedJobs?(params: {

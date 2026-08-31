@@ -12,6 +12,11 @@ import { getMappedPlatform } from '@libs/common/utils/webhooks';
 import { createLogger } from '@libs/core/log/logger';
 import { EnqueueCodeReviewJobInput } from '@libs/core/workflow/application/use-cases/enqueue-code-review-job.use-case';
 import { CodeManagementService } from '@libs/platform/infrastructure/adapters/services/codeManagement.service';
+import {
+    isJobCancellationSignal,
+    isJobCancelledError,
+    JobCancelledError,
+} from '@libs/core/workflow/domain/errors/job-cancelled.error';
 
 @Injectable()
 export class RunCodeReviewAutomationUseCase implements IUseCase {
@@ -26,6 +31,10 @@ export class RunCodeReviewAutomationUseCase implements IUseCase {
 
     async execute(params: EnqueueCodeReviewJobInput, signal?: AbortSignal) {
         try {
+            if (isJobCancellationSignal(signal)) {
+                throw new JobCancelledError(params.workflowJobId);
+            }
+
             const {
                 codeManagementPayload: payload,
                 event,
@@ -244,6 +253,10 @@ export class RunCodeReviewAutomationUseCase implements IUseCase {
 
             return result;
         } catch (error) {
+            if (isJobCancelledError(error) || isJobCancellationSignal(signal)) {
+                throw new JobCancelledError(params.workflowJobId);
+            }
+
             this.logger.error({
                 message: 'Error executing code review automation',
                 context: RunCodeReviewAutomationUseCase.name,

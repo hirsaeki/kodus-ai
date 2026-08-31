@@ -6,6 +6,11 @@ export const JOB_STATUS_SERVICE_TOKEN = Symbol.for('JobStatusService');
 export interface IJobStatusService {
     getJobStatus(jobId: string): Promise<IWorkflowJob | null>;
 
+    cancelJob(
+        jobId: string,
+        organizationId: string,
+    ): Promise<{ job: IWorkflowJob; cancelled: boolean } | null>;
+
     getJobDetail(jobId: string): Promise<{
         job: IWorkflowJob;
         executionHistory: IJobExecutionHistory[];

@@ -11,6 +11,10 @@ import {
 import { WorkflowType } from '@libs/core/workflow/domain/enums/workflow-type.enum';
 import { JobStatus } from '@libs/core/workflow/domain/enums/job-status.enum';
 import { ErrorClassification } from '@libs/core/workflow/domain/enums/error-classification.enum';
+import {
+    isJobCancelledError,
+    JobCancelledError,
+} from '@libs/core/workflow/domain/errors/job-cancelled.error';
 
 import { WebhookProcessingJobProcessorService } from '@libs/automation/webhook-processing/webhook-processing-job.processor';
 import { CodeReviewJobProcessorService } from '@libs/code-review/workflow/code-review-job-processor.service';
@@ -32,6 +36,7 @@ const CLI_CODE_REVIEW_PROCESS_TIMEOUT_MS = 28 * 60 * 1000; // 28 min
 const CHECK_IMPLEMENTATION_TIMEOUT_MS = 9 * 60 * 1000; // 9 min
 const AST_GRAPH_BUILD_TIMEOUT_MS = 19 * 60 * 1000; // 19 min
 const AST_GRAPH_INCREMENTAL_TIMEOUT_MS = 9 * 60 * 1000; // 9 min
+const JOB_CANCELLATION_POLL_MS = 2_000;
 
 @Injectable()
 export class JobProcessorRouterService
@@ -57,16 +62,34 @@ export class JobProcessorRouterService
             throw new Error(`Workflow job ${jobId} not found`);
         }
 
+        if (job.status === JobStatus.CANCELLED) {
+            throw new JobCancelledError(jobId);
+        }
+
         const processor = this.getProcessor(job.workflowType);
         const timeoutMs = this.getProcessTimeoutMs(job.workflowType);
+        const cancellationController = new AbortController();
+        const cancellationPoll = setInterval(() => {
+            void this.pollCancellation(jobId, cancellationController);
+        }, JOB_CANCELLATION_POLL_MS);
 
         try {
             return await runWithTimeout(
                 (signal) => processor.process(jobId, signal),
                 timeoutMs,
                 `Workflow job ${jobId} timeout after ${timeoutMs}ms`,
+                cancellationController.signal,
             );
-        } catch (error) {
+        } catch (rawError) {
+            const error =
+                rawError instanceof Error
+                    ? rawError
+                    : new Error(String(rawError));
+
+            if (await this.wasCancelled(jobId, error)) {
+                throw new JobCancelledError(jobId);
+            }
+
             const isTimeout = error.message?.includes('timeout after');
 
             // Always mark job as FAILED when an error occurs (including timeout)
@@ -100,6 +123,47 @@ export class JobProcessorRouterService
             }
 
             throw error;
+        } finally {
+            clearInterval(cancellationPoll);
+        }
+    }
+
+    private async pollCancellation(
+        jobId: string,
+        controller: AbortController,
+    ): Promise<void> {
+        if (controller.signal.aborted) return;
+
+        try {
+            const job = await this.jobRepository.findOne(jobId);
+            if (job?.status === JobStatus.CANCELLED) {
+                controller.abort(new JobCancelledError(jobId));
+                this.logger.log({
+                    message: `Cancellation detected for workflow job ${jobId}`,
+                    context: JobProcessorRouterService.name,
+                    metadata: { jobId },
+                });
+            }
+        } catch (error) {
+            this.logger.warn({
+                message: `Failed to poll cancellation for workflow job ${jobId}`,
+                context: JobProcessorRouterService.name,
+                error,
+                metadata: { jobId },
+            });
+        }
+    }
+
+    private async wasCancelled(jobId: string, error: Error): Promise<boolean> {
+        if (isJobCancelledError(error)) return true;
+
+        try {
+            return (
+                (await this.jobRepository.findOne(jobId))?.status ===
+                JobStatus.CANCELLED
+            );
+        } catch {
+            return false;
         }
     }
 
@@ -164,5 +228,4 @@ export class JobProcessorRouterService
                 return CODE_REVIEW_PROCESS_TIMEOUT_MS;
         }
     }
-
 }

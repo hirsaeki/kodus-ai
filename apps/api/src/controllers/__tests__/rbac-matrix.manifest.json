@@ -1848,6 +1848,17 @@
     }
   },
   {
+    "key": "workflow-queue.controller.ts#cancelJob",
+    "httpMethod": "POST",
+    "urlPath": "/workflow-queue/jobs/:jobId/cancel",
+    "expected": {
+      "owner": "allow",
+      "billing_manager": "allow",
+      "repo_admin": "allow",
+      "contributor": "allow"
+    }
+  },
+  {
     "key": "workflow-queue.controller.ts#getJobDetail",
     "httpMethod": "GET",
     "urlPath": "/workflow-queue/jobs/:jobId/detail",

@@ -1,0 +1,34 @@
+name: Fork images
+
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'Image tag to publish to GHCR'
+                required: true
+                default: 'cancel-review'
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        env:
+            RELEASE_VERSION: ${{ inputs.tag }}
+            API_CLOUD_MODE: 'false'
+            API_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-api:${{ inputs.tag }}
+            WEBHOOKS_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-webhook:${{ inputs.tag }}
+            WORKER_TAGS: ghcr.io/${{ github.repository_owner }}/kodus-ai-worker:${{ inputs.tag }}
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: docker/setup-buildx-action@v3
+            - uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+            - name: Build and push API, webhooks, and worker
+              run: docker buildx bake --push api webhooks worker

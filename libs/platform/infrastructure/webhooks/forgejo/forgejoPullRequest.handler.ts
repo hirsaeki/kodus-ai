@@ -161,7 +161,10 @@ export class ForgejoPullRequestHandler implements IWebhookEventHandler {
         try {
             await this.savePullRequestUseCase.execute(params);
 
-            if (this.enqueueCodeReviewJobUseCase) {
+            if (
+                this.enqueueCodeReviewJobUseCase &&
+                payload?.action !== WebhookForgejoHookIssueAction.CLOSED
+            ) {
                 this.enqueueCodeReviewJobUseCase
                     .execute({
                         codeManagementPayload: payload,

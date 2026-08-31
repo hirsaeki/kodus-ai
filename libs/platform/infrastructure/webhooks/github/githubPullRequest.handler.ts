@@ -157,7 +157,10 @@ export class GitHubPullRequestHandler implements IWebhookEventHandler {
         try {
             await this.savePullRequestUseCase.execute(params);
 
-            if (this.enqueueCodeReviewJobUseCase) {
+            if (
+                this.enqueueCodeReviewJobUseCase &&
+                payload?.action !== 'closed'
+            ) {
                 this.enqueueCodeReviewJobUseCase
                     .execute({
                         codeManagementPayload: payload,

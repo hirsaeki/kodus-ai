@@ -19,6 +19,7 @@ import { OUTBOX_MESSAGE_REPOSITORY_TOKEN } from '@libs/core/workflow/domain/cont
 import { GenerateIssuesFromPrClosedUseCase } from '@libs/issues/application/use-cases/generate-issues-from-pr-closed.use-case';
 import { WebhookContextService } from '@libs/platform/application/services/webhook-context.service';
 import { ChatWithKodyFromGitUseCase } from '@libs/platform/application/use-cases/codeManagement/chatWithKodyFromGit.use-case';
+import { WebhookForgejoHookIssueAction } from '@libs/platform/domain/platformIntegrations/types/webhooks/webhooks-forgejo.type';
 import {
     SANDBOX_INVALIDATE_ROUTING_KEY,
     SandboxInvalidatePayload,
@@ -37,6 +38,8 @@ describe('ForgejoPullRequestHandler push events', () => {
         getCommitsForPullRequestForCodeReview: jest.Mock;
     };
     let outboxRepository: { create: jest.Mock };
+    let savePullRequest: jest.Mock;
+    let enqueueCodeReviewJob: jest.Mock;
 
     const organizationAndTeamData = {
         organizationId: 'org-1',
@@ -94,13 +97,15 @@ describe('ForgejoPullRequestHandler push events', () => {
         outboxRepository = {
             create: jest.fn().mockResolvedValue(undefined),
         };
+        savePullRequest = jest.fn();
+        enqueueCodeReviewJob = jest.fn();
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 ForgejoPullRequestHandler,
                 {
                     provide: SavePullRequestUseCase,
-                    useValue: { execute: jest.fn() },
+                    useValue: { execute: savePullRequest },
                 },
                 {
                     provide: WebhookContextService,
@@ -124,7 +129,7 @@ describe('ForgejoPullRequestHandler push events', () => {
                 },
                 {
                     provide: EnqueueCodeReviewJobUseCase,
-                    useValue: { execute: jest.fn() },
+                    useValue: { execute: enqueueCodeReviewJob },
                 },
                 {
                     provide: EnqueueImplementationCheckUseCase,
@@ -140,6 +145,28 @@ describe('ForgejoPullRequestHandler push events', () => {
         handler = module.get<ForgejoPullRequestHandler>(
             ForgejoPullRequestHandler,
         );
+    });
+
+    it('does not enqueue a code review for a closed pull request', async () => {
+        await handler.execute({
+            event: 'pull_request',
+            platformType: PlatformType.FORGEJO,
+            payload: {
+                action: WebhookForgejoHookIssueAction.CLOSED,
+                repository: {
+                    id: 12345,
+                    name: 'test-repo',
+                    full_name: 'org/test-repo',
+                },
+                pull_request: {
+                    number: 42,
+                    html_url: 'https://git.example.com/org/test-repo/pulls/42',
+                },
+            },
+        } as any);
+
+        expect(savePullRequest).toHaveBeenCalled();
+        expect(enqueueCodeReviewJob).not.toHaveBeenCalled();
     });
 
     it('writes force_pushed invalidation when push removes previous head from PR commits', async () => {

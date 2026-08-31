@@ -2,11 +2,14 @@ import {
     Controller,
     Get,
     Param,
+    Post,
     UseGuards,
     HttpStatus,
     HttpCode,
+    UnauthorizedException,
 } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
+import { REQUEST } from '@nestjs/core';
 
 import {
     Action,
@@ -19,6 +22,7 @@ import { JOB_STATUS_SERVICE_TOKEN } from '@libs/core/workflow/domain/contracts/j
 import { IJobStatusService } from '@libs/core/workflow/domain/contracts/job-status.service.contract';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ApiStandardResponses } from '../docs/api-standard-responses.decorator';
+import { UserRequest } from '@libs/core/infrastructure/config/types/http/user-request.type';
 
 @ApiTags('Workflow Queue')
 @ApiBearerAuth('jwt')
@@ -29,6 +33,8 @@ export class WorkflowQueueController {
     constructor(
         @Inject(JOB_STATUS_SERVICE_TOKEN)
         private readonly jobStatusService: IJobStatusService,
+        @Inject(REQUEST)
+        private readonly request: UserRequest,
     ) {}
 
     @Get('/jobs/:jobId')
@@ -52,6 +58,48 @@ export class WorkflowQueueController {
         return {
             status: HttpStatus.OK,
             data: job,
+        };
+    }
+
+    @Post('/jobs/:jobId/cancel')
+    @CheckPolicies(
+        checkPermissions({
+            action: Action.Read,
+            resource: ResourceType.CodeReviewSettings,
+        }),
+    )
+    @HttpCode(HttpStatus.OK)
+    async cancelJob(@Param('jobId') jobId: string) {
+        const organizationId = this.request.user?.organization?.uuid;
+        if (!organizationId) {
+            throw new UnauthorizedException(
+                'Authenticated organization not found',
+            );
+        }
+
+        const result = await this.jobStatusService.cancelJob(
+            jobId,
+            organizationId,
+        );
+
+        if (!result) {
+            return {
+                status: HttpStatus.NOT_FOUND,
+                message: 'Job not found',
+            };
+        }
+
+        if (!result.cancelled) {
+            return {
+                status: HttpStatus.CONFLICT,
+                message: `Job is already ${result.job.status}`,
+                data: result.job,
+            };
+        }
+
+        return {
+            status: HttpStatus.OK,
+            data: result.job,
         };
     }
 

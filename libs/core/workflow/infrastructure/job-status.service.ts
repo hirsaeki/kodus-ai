@@ -32,6 +32,32 @@ export class JobStatusService implements IJobStatusService {
         return await this.jobRepository.findOne(jobId);
     }
 
+    async cancelJob(jobId: string, organizationId: string) {
+        const job = await this.jobRepository.findOne(jobId);
+
+        if (
+            !job ||
+            job.organizationAndTeamData?.organizationId !== organizationId
+        ) {
+            return null;
+        }
+
+        if (
+            job.status === JobStatus.PENDING ||
+            job.status === JobStatus.PROCESSING
+        ) {
+            await this.jobRepository.cancel(jobId, organizationId);
+        }
+
+        const currentJob = await this.jobRepository.findOne(jobId);
+        return currentJob
+            ? {
+                  job: currentJob,
+                  cancelled: currentJob.status === JobStatus.CANCELLED,
+              }
+            : null;
+    }
+
     async getJobDetail(jobId: string) {
         const job = await this.jobRepository.findOne(jobId);
 

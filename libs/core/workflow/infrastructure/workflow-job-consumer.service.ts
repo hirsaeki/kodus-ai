@@ -15,6 +15,7 @@ import {
 } from '@libs/core/workflow/domain/contracts/workflow-job.repository.contract';
 import { JobStatus } from '@libs/core/workflow/domain/enums/job-status.enum';
 import { ErrorClassification } from '@libs/core/workflow/domain/enums/error-classification.enum';
+import { isJobCancelledError } from '@libs/core/workflow/domain/errors/job-cancelled.error';
 
 import { ObservabilityService } from '@libs/core/log/observability.service';
 import { createLogger } from '@libs/core/log/logger';
@@ -408,7 +409,30 @@ export class WorkflowJobConsumer implements OnApplicationShutdown {
                     span.setAttributes({
                         'workflow.job.processed': true,
                     });
-                } catch (error) {
+                } catch (rawError) {
+                    const error =
+                        rawError instanceof Error
+                            ? rawError
+                            : new Error(String(rawError));
+
+                    if (isJobCancelledError(error)) {
+                        await this.inboxRepository.markAsProcessed(
+                            messageId,
+                            consumerId,
+                        );
+                        this.logger.log({
+                            message: 'Cancelled workflow job acknowledged',
+                            context: WorkflowJobConsumer.name,
+                            metadata: {
+                                messageId,
+                                jobId: unwrappedMessage.jobId,
+                                correlationId,
+                                queueName,
+                            },
+                        });
+                        return;
+                    }
+
                     span.setAttributes({
                         'error': true,
                         'exception.type': error.name,

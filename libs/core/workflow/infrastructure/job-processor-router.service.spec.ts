@@ -1,4 +1,5 @@
 import { runWithTimeout } from './run-with-timeout';
+import { JobCancelledError } from '@libs/core/workflow/domain/errors/job-cancelled.error';
 
 describe('runWithTimeout (router core)', () => {
     afterEach(() => {
@@ -47,6 +48,28 @@ describe('runWithTimeout (router core)', () => {
             runWithTimeout(work, 1_000, 'unused'),
         ).rejects.toThrow('processor exploded');
         expect(capturedSignal?.aborted).toBe(false);
+    });
+
+    it('propagates an external cancellation signal and aborts the worker signal', async () => {
+        const parent = new AbortController();
+        let capturedSignal: AbortSignal | undefined;
+        const work = (signal: AbortSignal) => {
+            capturedSignal = signal;
+            return new Promise<void>(() => {});
+        };
+        const cancelled = new JobCancelledError('job-1');
+        const running = runWithTimeout(
+            work,
+            10_000,
+            'unused',
+            parent.signal,
+        );
+
+        parent.abort(cancelled);
+
+        await expect(running).rejects.toBe(cancelled);
+        expect(capturedSignal?.aborted).toBe(true);
+        expect(capturedSignal?.reason).toBe(cancelled);
     });
 
     it('clears the timer in the finally block so no orphan timeouts leak', async () => {

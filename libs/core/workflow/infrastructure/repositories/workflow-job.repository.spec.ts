@@ -22,7 +22,10 @@ describe('WorkflowJobRepository.failStaleProcessing', () => {
         returning: jest.Mock;
         execute: jest.Mock;
     };
-    let repository: { createQueryBuilder: jest.Mock };
+    let repository: {
+        createQueryBuilder: jest.Mock;
+        update: jest.Mock;
+    };
     let repo: WorkflowJobRepository;
 
     const olderThan = new Date('2026-07-01T00:00:00Z');
@@ -37,7 +40,10 @@ describe('WorkflowJobRepository.failStaleProcessing', () => {
             returning: jest.fn().mockReturnThis(),
             execute: jest.fn().mockResolvedValue({ raw: [], affected: 0 }),
         };
-        repository = { createQueryBuilder: jest.fn().mockReturnValue(qb) };
+        repository = {
+            createQueryBuilder: jest.fn().mockReturnValue(qb),
+            update: jest.fn().mockResolvedValue({ affected: 1 }),
+        };
         repo = new WorkflowJobRepository(repository as any);
     });
 
@@ -95,5 +101,39 @@ describe('WorkflowJobRepository.failStaleProcessing', () => {
         });
 
         expect(result).toEqual([]);
+    });
+});
+
+describe('WorkflowJobRepository.cancel', () => {
+    let repository: { update: jest.Mock };
+    let repo: WorkflowJobRepository;
+
+    beforeEach(() => {
+        repository = {
+            update: jest.fn().mockResolvedValue({ affected: 1 }),
+        };
+        repo = new WorkflowJobRepository(repository as any);
+    });
+
+    it('cancels only pending or processing jobs in the requesting organization', async () => {
+        await expect(repo.cancel('job-1', 'org-1')).resolves.toBe(true);
+
+        expect(repository.update).toHaveBeenCalledWith(
+            expect.objectContaining({
+                uuid: 'job-1',
+                organizationId: 'org-1',
+                status: expect.anything(),
+            }),
+            expect.objectContaining({
+                status: JobStatus.CANCELLED,
+                lastError: 'Cancelled by user',
+            }),
+        );
+    });
+
+    it('reports a no-op when the job is not cancellable', async () => {
+        repository.update.mockResolvedValue({ affected: 0 });
+
+        await expect(repo.cancel('job-1', 'org-1')).resolves.toBe(false);
     });
 });

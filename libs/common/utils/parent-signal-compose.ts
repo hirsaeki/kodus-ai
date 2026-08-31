@@ -22,13 +22,13 @@ export function composeAbortSignal(
     if (!parent) return () => {};
 
     if (parent.aborted) {
-        local.abort();
+        local.abort(parent.reason);
         return () => {};
     }
 
     const handler = () => {
         onAbort?.();
-        local.abort();
+        local.abort(parent.reason);
     };
     parent.addEventListener('abort', handler, { once: true });
     return () => parent.removeEventListener('abort', handler);

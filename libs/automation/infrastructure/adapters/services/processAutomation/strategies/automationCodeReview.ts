@@ -23,6 +23,11 @@ import {
 import { ITeamAutomation } from '@libs/automation/domain/teamAutomation/interfaces/team-automation.interface';
 import { CodeReviewHandlerService } from '@libs/code-review/infrastructure/adapters/services/codeReviewHandlerService.service';
 import { describePipelineError } from '@libs/code-review/utils/describe-pipeline-error';
+import {
+    isJobCancellationSignal,
+    isJobCancelledError,
+    JobCancelledError,
+} from '@libs/core/workflow/domain/errors/job-cancelled.error';
 
 /**
  * Messages the pipeline sets before it knows the outcome. Reporting one of
@@ -110,8 +115,13 @@ export class AutomationCodeReviewService implements Omit<
             reviewDirective,
             heavy,
             userGitId,
+            workflowJobId,
             signal,
         } = payload as Record<string, any>;
+
+        if (isJobCancellationSignal(signal)) {
+            throw new JobCancelledError(payload?.workflowJobId);
+        }
 
         const orgId = organizationAndTeamData?.organizationId;
         const repoId = repository?.id;
@@ -225,6 +235,10 @@ export class AutomationCodeReviewService implements Omit<
                 return 'Could not create code review execution';
             }
 
+            if (isJobCancellationSignal(signal)) {
+                throw new JobCancelledError(workflowJobId);
+            }
+
             // Check for pre-validation error passed from UseCase
             if (payload.validationError) {
                 this.logger.warn({
@@ -256,6 +270,10 @@ export class AutomationCodeReviewService implements Omit<
                     },
                 );
 
+            if (isJobCancellationSignal(signal)) {
+                throw new JobCancelledError(workflowJobId);
+            }
+
             const result =
                 await this.codeReviewHandlerService.handlePullRequest(
                     {
@@ -272,7 +290,7 @@ export class AutomationCodeReviewService implements Omit<
                     execution.uuid,
                     triggerCommentId,
                     userGitId,
-                    undefined, // workflowJobId
+                    workflowJobId,
                     lastExecution?.dataExecution, // Pass last execution data
                     correlationId,
                     signal, // parentSignal — forwarded to pipeline context
@@ -280,9 +298,28 @@ export class AutomationCodeReviewService implements Omit<
                     heavy, // @kody review --heavy — extra critic pass
                 );
 
+            if (isJobCancellationSignal(signal)) {
+                throw new JobCancelledError(payload?.workflowJobId);
+            }
+
             await this._handleExecutionCompletion(execution, result, payload);
             return 'Automation executed successfully';
         } catch (error) {
+            if (isJobCancelledError(error) || isJobCancellationSignal(signal)) {
+                if (execution) {
+                    await this.updateAutomationExecution(
+                        execution,
+                        AutomationStatus.ERROR,
+                        'Cancelled by user',
+                        {
+                            ...this._buildExecutionData(payload),
+                            cancelled: true,
+                        },
+                    );
+                }
+                throw new JobCancelledError(payload?.workflowJobId);
+            }
+
             await this._handleExecutionError(execution, error, payload);
             return 'Error executing automation';
         } finally {

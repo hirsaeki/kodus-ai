@@ -24,6 +24,11 @@ import {
 } from '@libs/core/workflow/domain/contracts/rate-limit-gate.service.contract';
 import { isRateLimitError } from '@libs/core/workflow/domain/errors/rate-limit.error';
 import { classifyGitHubError } from '@libs/core/workflow/domain/errors/classify-github-error';
+import {
+    isJobCancellationSignal,
+    isJobCancelledError,
+    JobCancelledError,
+} from '@libs/core/workflow/domain/errors/job-cancelled.error';
 
 @Injectable()
 export class CodeReviewJobProcessorService implements IJobProcessorService {
@@ -56,6 +61,10 @@ export class CodeReviewJobProcessorService implements IJobProcessorService {
             context: CodeReviewJobProcessorService.name,
             metadata: { jobId, correlationId },
         });
+
+        if (job.status === JobStatus.CANCELLED) {
+            throw new JobCancelledError(jobId);
+        }
 
         if (signal?.aborted) {
             throw new Error(`Job ${jobId} aborted before start`);
@@ -96,6 +105,8 @@ export class CodeReviewJobProcessorService implements IJobProcessorService {
                 platformType,
             );
 
+            await this.throwIfCancellationRequested(jobId, signal);
+
             const admission =
                 await this.byokConcurrencyGateService.tryEnter(job);
 
@@ -108,11 +119,15 @@ export class CodeReviewJobProcessorService implements IJobProcessorService {
                 acquiredLock = admission.lock;
             }
 
+            await this.throwIfCancellationRequested(jobId, signal);
+
             await this.jobRepository.update(jobId, {
                 status: JobStatus.PROCESSING,
                 startedAt: new Date(),
                 metadata: this.removeByokConcurrencyGateMetadata(job.metadata),
             });
+
+            await this.throwIfCancellationRequested(jobId, signal);
 
             // Race the use-case against the parent's AbortSignal. The use
             // case already receives `signal` (PR #1 wired it down to the
@@ -138,6 +153,7 @@ export class CodeReviewJobProcessorService implements IJobProcessorService {
                 signal,
             );
 
+            await this.throwIfCancellationRequested(jobId, signal);
             await this.markCompleted(jobId);
 
             const durationMs = Date.now() - startTime;
@@ -147,6 +163,13 @@ export class CodeReviewJobProcessorService implements IJobProcessorService {
                 { status: 'success' },
             );
         } catch (rawError) {
+            if (
+                isJobCancelledError(rawError) ||
+                (await this.isCancellationRequested(jobId, signal))
+            ) {
+                throw new JobCancelledError(jobId);
+            }
+
             // Wrap octokit 403/429 in RateLimitError so the consumer
             // error handler can apply the smart delay. If the error
             // wasn't a GitHub rate-limit, classifyGitHubError returns
@@ -231,6 +254,28 @@ export class CodeReviewJobProcessorService implements IJobProcessorService {
             completedAt: new Date(),
             result: result,
         });
+    }
+
+    private async throwIfCancellationRequested(
+        jobId: string,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        if (await this.isCancellationRequested(jobId, signal)) {
+            throw new JobCancelledError(jobId);
+        }
+    }
+
+    private async isCancellationRequested(
+        jobId: string,
+        signal?: AbortSignal,
+    ): Promise<boolean> {
+        if (isJobCancellationSignal(signal)) return true;
+        if (!signal?.aborted) return false;
+
+        return (
+            (await this.jobRepository.findOne(jobId))?.status ===
+            JobStatus.CANCELLED
+        );
     }
 
     private removeByokConcurrencyGateMetadata(

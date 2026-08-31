@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository, EntityManager } from 'typeorm';
+import { FindOptionsWhere, In, Not, Repository, EntityManager } from 'typeorm';
 
 import { createLogger } from '@libs/core/log/logger';
 import {
@@ -109,7 +109,12 @@ export class WorkflowJobRepository implements IWorkflowJobRepository {
                 updateData.pipelineState = data.pipelineState;
             if (data.payload !== undefined) updateData.payload = data.payload;
 
-            await this.repository.update({ uuid: id }, updateData);
+            const where: FindOptionsWhere<WorkflowJobModel> = { uuid: id };
+            if (data.status !== undefined && data.status !== JobStatus.CANCELLED) {
+                where.status = Not(JobStatus.CANCELLED);
+            }
+
+            await this.repository.update(where, updateData);
 
             return await this.findOne(id);
         } catch (error) {
@@ -118,6 +123,33 @@ export class WorkflowJobRepository implements IWorkflowJobRepository {
                 context: WorkflowJobRepository.name,
                 error,
                 metadata: { jobId: id },
+            });
+            throw error;
+        }
+    }
+
+    async cancel(id: string, organizationId: string): Promise<boolean> {
+        try {
+            const result = await this.repository.update(
+                {
+                    uuid: id,
+                    organizationId,
+                    status: In([JobStatus.PENDING, JobStatus.PROCESSING]),
+                },
+                {
+                    status: JobStatus.CANCELLED,
+                    completedAt: new Date(),
+                    lastError: 'Cancelled by user',
+                },
+            );
+
+            return (result.affected || 0) > 0;
+        } catch (error) {
+            this.logger.error({
+                message: 'Failed to cancel workflow job',
+                context: WorkflowJobRepository.name,
+                error,
+                metadata: { jobId: id, organizationId },
             });
             throw error;
         }

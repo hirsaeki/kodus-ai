@@ -18,9 +18,11 @@ export async function runWithTimeout<T>(
     work: (signal: AbortSignal) => Promise<T>,
     timeoutMs: number,
     timeoutMessage: string,
+    parentSignal?: AbortSignal,
 ): Promise<T> {
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let parentAbortHandler: (() => void) | undefined;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
@@ -29,11 +31,35 @@ export async function runWithTimeout<T>(
         }, timeoutMs);
     });
 
+    const parentAbortPromise = parentSignal
+        ? new Promise<never>((_, reject) => {
+              parentAbortHandler = () => {
+                  controller.abort(parentSignal.reason);
+                  reject(parentSignal.reason);
+              };
+
+              if (parentSignal.aborted) {
+                  parentAbortHandler();
+              } else {
+                  parentSignal.addEventListener('abort', parentAbortHandler, {
+                      once: true,
+                  });
+              }
+          })
+        : undefined;
+
     try {
-        return await Promise.race([work(controller.signal), timeoutPromise]);
+        return await Promise.race([
+            work(controller.signal),
+            timeoutPromise,
+            ...(parentAbortPromise ? [parentAbortPromise] : []),
+        ]);
     } finally {
         if (timeoutId) {
             clearTimeout(timeoutId);
+        }
+        if (parentAbortHandler && parentSignal) {
+            parentSignal.removeEventListener('abort', parentAbortHandler);
         }
     }
 }

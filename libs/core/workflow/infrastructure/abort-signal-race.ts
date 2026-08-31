@@ -1,3 +1,8 @@
+import {
+    isJobCancelledError,
+    JobCancelledError,
+} from '../domain/errors/job-cancelled.error';
+
 /**
  * Race a promise against an AbortSignal.
  *
@@ -29,11 +34,20 @@ export async function raceWithAbortSignal<T>(
     signal: AbortSignal | undefined,
 ): Promise<T> {
     if (!signal) return work;
-    if (signal.aborted) throw new JobAbortedError();
+    if (signal.aborted) {
+        throw isJobCancelledError(signal.reason)
+            ? signal.reason
+            : new JobAbortedError();
+    }
 
     let onAbort: (() => void) | undefined;
     const abortPromise = new Promise<never>((_, reject) => {
-        onAbort = () => reject(new JobAbortedError());
+        onAbort = () =>
+            reject(
+                isJobCancelledError(signal.reason)
+                    ? (signal.reason as JobCancelledError)
+                    : new JobAbortedError(),
+            );
         signal.addEventListener('abort', onAbort, { once: true });
     });
 

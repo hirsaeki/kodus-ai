@@ -202,6 +202,7 @@ describe('GitHubPullRequestHandler', () => {
         } as any);
 
         expect(generateIssuesFromPrClosedUseCase.execute).toHaveBeenCalled();
+        expect(enqueueCodeReviewJobUseCase.execute).not.toHaveBeenCalled();
         expect(outboxRepository.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 routingKey: SANDBOX_INVALIDATE_ROUTING_KEY,
